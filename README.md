@@ -1,9 +1,46 @@
 # MSP Accounts — ConnectWise Automate Plugin
 
-> **Fork of [mspgeek/MSPAccounts](https://github.com/mspgeek/MSPAccounts)**
-> Maintained by Triton Technologies (THarmon77) — Private fork for internal use.
-> Original plugin by MrRat / RealTime, LLC — Copyright 2015.
-> This fork: modernization and maintenance for ConnectWise Automate 2026.
+> **Fork of [mspgeek/MSPAccounts](https://github.com/mspgeek/MSPAccounts)**  
+> Maintained by Triton Technologies (THarmon77) — Private fork for internal use.  
+> Original plugin by MrRat / RealTime, LLC — Copyright 2015.  
+> This fork: full rebuild as **Triton Account Manager v3** for ConnectWise Automate 2026.
+
+---
+
+## ⚠️ Active Development — v3 Rebuild in Progress
+
+This repository is being **completely rebuilt** as Triton Account Manager v3. The original codebase (v2) is preserved for reference but will be replaced. All v3 design decisions are documented in the `docs/` folder before any code is written.
+
+### v3 Documentation Index
+
+| Document | Description |
+|----------|-------------|
+| **[docs/DESIGN_SPEC.md](docs/DESIGN_SPEC.md)** | Full v3 plugin design — purpose, architecture, module map, UI design, security decisions, all design choices documented |
+| **[docs/SDK_INTERFACES.md](docs/SDK_INTERFACES.md)** | Complete CW Automate Plugin SDK reference — every interface, method, property, and usage pattern sourced from the ConnectWise Developer Portal |
+| **[docs/DATABASE.md](docs/DATABASE.md)** | Database reference — f_CWAESEncrypt, all CW Automate native tables used (passwords, locations, computers, commands), new plugin tables, key SQL queries |
+
+### v3 Summary
+
+**What it does:** Deploys and maintains a single shared local administrator account (`TritonTech`) on every managed workstation across all Triton-managed clients. Stores a unique password per location in the CW Automate Passwords tab. Rotates passwords on a 90-day schedule.
+
+**Key design decisions:**
+- Password storage: **`f_CWAESEncrypt()`** — CW Automate's own native function. Passwords appear in the CW Passwords tab without any plugin involvement. No master key, no DPAPI, no custom encryption.
+- Password scope: **Per-Location** (default) or Per-Client. Global scope removed.
+- Target machines: All workstations — standalone, workgroup, domain-joined, Azure AD joined. (`OS NOT LIKE '%Server%'`)
+- Password generation: **`RNGCryptoServiceProvider`** — cryptographically secure. Never `System.Random`.
+- Error handling: **`Try/Catch/Finally`** throughout. No `On Error GoTo`. All timeouts enforced.
+- Logging: **`objHost.LogMessage()`** everywhere. No `MessageBox.Show` in background threads.
+- Migration: One-time routine to replace legacy accounts (`TT_Service`) with `TritonTech`.
+
+**CW Automate version:** v25.0.436 Patch 11  
+**Interfaces.dll version:** 2024.2.72.0  
+**Target framework:** .NET Framework 4.8
+
+---
+
+## Original v2 Plugin Documentation (Legacy Reference)
+
+The sections below document the **original mspgeek/MSPAccounts codebase** as it exists in this repository. This documentation is preserved as reference for understanding the legacy code during the v3 rebuild.
 
 ---
 
@@ -32,7 +69,7 @@
 
 MSP Accounts is a **ConnectWise Automate (formerly LabTech) client-side plugin** that gives MSP technicians a centralized interface to manage their own support accounts across all client Active Directory domains — directly from within the CW Automate console.
 
-**Core capabilities:**
+**Core capabilities (original v2):**
 
 | Feature | Description |
 |---|---|
@@ -78,6 +115,11 @@ MSPAccounts/
 ├── MSP Accounts.sln              # Visual Studio solution file
 ├── MSP Accounts.vbproj           # VB.NET project file (.NET Framework)
 ├── Interfaces.dll                # CW Automate plugin SDK (pre-compiled, do not modify)
+│
+├── docs/                         # v3 design documentation
+│   ├── DESIGN_SPEC.md            # Full v3 design specification
+│   ├── SDK_INTERFACES.md         # Complete SDK interface reference
+│   └── DATABASE.md               # Database schema and query reference
 │
 ├── PLUGIN DEFINITION/
 │   └── PluginMain.vb             # IPlugin entry point — registers name, version, author
@@ -129,7 +171,7 @@ MSPAccounts/
 | Requirement | Notes |
 |---|---|
 | ConnectWise Automate | Self-hosted, Control Center client installed on technician workstation |
-| CW Automate version | Originally written for ~v10-11 (2015). Verify interface compatibility before deploying to newer versions. |
+| CW Automate version | v25.0.436 Patch 11 (confirmed compatible with Interfaces.dll v2024.2.72.0) |
 | Plugin folder access | Technician must have write access to the CW Automate plugins directory |
 | MySQL access | Plugin creates/queries tables in the CW Automate MySQL database |
 
@@ -413,7 +455,7 @@ This string is the `SHA()` key used in every MySQL `AES_ENCRYPT()` / `AES_DECRYP
 - A publicly known value — treat all encrypted passwords as compromised if the DB is exposed
 - Duplicated as a local variable in two files, bypassing even the global
 
-**Resolution plan:** Replace with a value read from CW Automate's secure config or encrypted settings at runtime. All existing encrypted passwords must be re-encrypted after any key change.
+**v3 Resolution:** Eliminated entirely — v3 uses `f_CWAESEncrypt()` (CW Automate native). No plugin-managed encryption key needed.
 
 ---
 
@@ -425,66 +467,47 @@ All SQL queries are built by string concatenation with unsanitized user input. E
 m_host.GetSQL("SELECT `" & tmpColumnName & "` FROM plugin_itsc_msp_accounts_userstatus WHERE `Username` = '" & passedUserName & "'")
 ```
 
-The CW Automate `IControlCenter.GetSQL()` / `SetSQL()` interface does not appear to support parameterized queries. Mitigation: strict input sanitization on all values before they enter SQL strings. This is tracked in the modernization roadmap.
+**v3 Resolution:** Use `IParameterizedQuery` where available in Interfaces.dll; sanitize all inputs before SQL inclusion.
 
 ---
 
 ### HIGH — Weak Random Number Generator
 
-`PasswordManagement.randomPassword()` uses `System.Random`, which is **not cryptographically secure**. Passwords generated in rapid succession (e.g., bulk rotation) may be predictable.
+`PasswordManagement.randomPassword()` uses `System.Random`, which is **not cryptographically secure**.
 
-**Resolution plan:** Replace `System.Random` with `System.Security.Cryptography.RNGCryptoServiceProvider`.
+**v3 Resolution:** `RNGCryptoServiceProvider` throughout `PasswordManager.vb`.
 
 ---
 
 ### MEDIUM — Weak Encryption Key Derivation
 
-`AES_ENCRYPT(password, SHA(key))` uses MySQL's `SHA()` function, which is **SHA-1** — a deprecated hashing algorithm. The key is also derived only from `ClientID + 1` as a salt, which is trivially guessable.
+`AES_ENCRYPT(password, SHA(key))` uses MySQL's `SHA()` function = SHA-1 (deprecated).
 
-**Resolution plan:** Migrate to `SHA2(key, 256)` at minimum, or handle encryption in .NET code rather than MySQL.
+**v3 Resolution:** Eliminated — `f_CWAESEncrypt()` used instead.
 
 ---
 
 ### MEDIUM — VB6-Style Error Handling
 
-Several files use `On Error GoTo errorHandler` (VB6 pattern) rather than structured `Try/Catch/Finally`. This can mask errors and makes debugging difficult.
+Several files use `On Error GoTo errorHandler` rather than structured `Try/Catch/Finally`.
 
-**Files affected:** `UserManagement.vb`, `ServiceManagement.vb`, `Reporting.vb`
+**v3 Resolution:** `Try/Catch/Finally` throughout all new modules.
 
 ---
 
 ### MEDIUM — Blocking Thread Sleep Polling
 
-Command status is polled in tight loops:
-```vb
-Do While CInt(subHost.GetSQL("Select Status from commands where cmdid=" & cmdID)) < 3
-    Threading.Thread.Sleep(5000)
-Loop
-```
+Command status polled in tight loops with no timeout, no cancellation, no UI feedback.
 
-There is no timeout, no cancellation, and no UI feedback. A hung command will block the thread indefinitely.
-
-**Resolution plan:** Add a maximum iteration count (e.g., 60 iterations = 5 minutes) with a timeout exception.
+**v3 Resolution:** All command polling loops have configurable timeout + iteration limit with `TimeoutException`.
 
 ---
 
 ### LOW — `MessageBox.Show` in Background Threads
 
-`ServiceManagement.vb` calls `Windows.Forms.MessageBox.Show()` inside `ThreadPool` worker threads. This will crash or hang in a non-UI thread context.
+`ServiceManagement.vb` calls `Windows.Forms.MessageBox.Show()` inside `ThreadPool` worker threads.
 
-**Resolution plan:** Replace with proper logging to the CW Automate log via `objHost.LogMessage()`.
-
----
-
-### LOW — "LabTech" Branding
-
-The `Interfaces.dll` namespace is `LabTech.Interfaces` (the pre-rebranding name). The plugin About text also says "LabTech". These are cosmetic but should be updated where possible to reflect "ConnectWise Automate".
-
----
-
-### LOW — `System.Random` Not Seeded Per-Instance
-
-Two separate `New System.Random` instances are created in `randomPassword()` with no explicit seed, which can produce identical sequences if called in rapid succession on the same thread.
+**v3 Resolution:** All logging via `objHost.LogMessage()`. No UI calls from background threads.
 
 ---
 
@@ -536,14 +559,7 @@ CREATE TABLE plugin_itsc_msp_accounts_userstatus_bak_YYYYMMDD
 
 Replace `YYYYMMDD` with today's date (e.g., `20260115`).
 
-#### 3. Export backup tables to files (optional but recommended)
-```sql
-SELECT * FROM plugin_itsc_msp_accounts_settings_bak_YYYYMMDD
-INTO OUTFILE '/tmp/msp_accounts_settings_backup_YYYYMMDD.csv'
-FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n';
-```
-
-#### 4. Commit any source changes to a branch before building
+#### 3. Commit any source changes to a branch before building
 ```bash
 git checkout -b backup/before-update-YYYY-MM-DD
 git add .
@@ -582,13 +598,11 @@ TRUNCATE TABLE plugin_itsc_msp_accounts_users;
 INSERT INTO plugin_itsc_msp_accounts_users
     SELECT * FROM plugin_itsc_msp_accounts_users_bak_YYYYMMDD;
 
--- Restore status from backup (note: dynamic columns may differ between versions)
+-- Restore status from backup
 TRUNCATE TABLE plugin_itsc_msp_accounts_userstatus;
 INSERT INTO plugin_itsc_msp_accounts_userstatus
     SELECT * FROM plugin_itsc_msp_accounts_userstatus_bak_YYYYMMDD;
 ```
-
-**Caution:** The `plugin_itsc_msp_accounts_userstatus` table uses dynamic columns (one per client domain). If the backup was from a different schema version, column mismatches may occur. Restore column-by-column if needed.
 
 ---
 
@@ -604,48 +618,40 @@ git checkout -b revert/test-YYYY-MM-DD <commit-hash>
 # Build and test from that branch
 # If confirmed good, tag it
 git tag v2.x-reverted-YYYY-MM-DD
-
-# To make it the new master (coordinate with team first)
-git checkout master
-git reset --hard <commit-hash>
-git push origin master --force
-# ⚠️ Only do this if you are certain and no other work depends on the reverted commits
 ```
 
 ---
 
 ## 2026 Modernization Roadmap
 
-Work items tracked as individual branches. Each branch = one focused change. Merge to `master` only after testing.
+The v3 rebuild proceeds in phases. See [docs/DESIGN_SPEC.md](docs/DESIGN_SPEC.md) for full details.
 
-### Phase 1 — Critical Security (do first)
-- [ ] **Remove hardcoded `sqlPassword`** — load from encrypted config or CW Automate secure store
-- [ ] **Replace `System.Random` with `RNGCryptoServiceProvider`** in `PasswordManagement.randomPassword()`
-- [ ] **Upgrade AES key derivation** from `SHA()` (SHA-1) to `SHA2(key, 256)` in all SQL encryption calls
-- [ ] **Input sanitization layer** — create a `Sanitize.vb` module with shared methods for all SQL string inputs
+### Phase 1 — Foundation (current)
+- [x] Document full design spec in `docs/DESIGN_SPEC.md`
+- [x] Document complete SDK interface reference in `docs/SDK_INTERFACES.md`
+- [x] Document database schema in `docs/DATABASE.md`
+- [ ] Create `dev` branch
+- [ ] Replace `Interfaces.dll` with v2024.2.72.0
+- [ ] Create `Config.vb` — reads `%SystemDrive%\Triton\MSPAccounts\config.xml`
+- [ ] Create `Logger.vb` — wraps ILogger with levels
+- [ ] Rewrite `clsPermissions.vb` — new tables, defaults
 
-### Phase 2 — Code Quality & Reliability
-- [ ] **Replace all `On Error GoTo`** with `Try/Catch/Finally` blocks (`UserManagement.vb`, `ServiceManagement.vb`, `Reporting.vb`)
-- [ ] **Add command polling timeouts** — max iterations with `TimeoutException` thrown after configurable limit
-- [ ] **Replace `MessageBox.Show` in threads** with `objHost.LogMessage()` throughout `ServiceManagement.vb`
-- [ ] **Add a `Logger.vb` module** — centralized logging with severity levels (Info, Warning, Error), writing to CW Automate log and optionally to a plugin log table
+### Phase 2 — Core Logic
+- [ ] Create `PasswordManager.vb` — RNGCryptoServiceProvider + f_CWAESEncrypt
+- [ ] Create `AccountDeployer.vb` — deploy/verify/remove TritonTech via SendCommand
+- [ ] Create `MigrationManager.vb` — one-time legacy account replacement
+- [ ] Rewrite `iSync.vb` — daily rotation check
+- [ ] Rewrite `iSync2.vb` — 6-minute new machine detection
 
-### Phase 3 — Modularization
-- [ ] **Break up `MSP_Accounts.vb`** — separate UI event handlers from business logic; move data access calls to a `DataAccess.vb` module
-- [ ] **Extract SQL strings** — move all SQL into a `Queries.vb` module (named, documented constants)
-- [ ] **Extract AD command strings** — move all `dsadd/dsmod/dsrm/net user` command templates to a `Commands.vb` module
-- [ ] **Break `LoopedChangePassword()`** into smaller, single-responsibility methods
+### Phase 3 — UI
+- [ ] Build `MainForm.vb` — 4-tab design (Dashboard, Actions, Settings, Log)
+- [ ] Remove all old form files
 
-### Phase 4 — CW Automate 2026 Compatibility
-- [ ] **Verify `Interfaces.dll` compatibility** with current CW Automate version — obtain updated SDK from ConnectWise if needed
-- [ ] **Update "LabTech" references** in plugin About text and comments
-- [ ] **Update branding** in `Globals.vb` (author, plugin name)
-- [ ] **Review command IDs** (e.g., `SendCommand(..., 17, ...)`, `SendCommand(..., 123, ...)`) against current CW Automate command type documentation
-
-### Phase 5 — Documentation & Testing
-- [ ] **Add XML doc comments** to all public methods (`''' <summary>`)
-- [ ] **Add unit tests** — extract pure logic (password gen/validation) to testable static methods in a separate project
-- [ ] **Add `CHANGELOG.md`** — version history going forward
+### Phase 4 — Testing & Deployment
+- [ ] Test on CW Automate v25.0.436 Patch 11
+- [ ] Verify f_CWAESEncrypt integration shows passwords in CW Passwords tab
+- [ ] Test migration routine against actual TT_Service accounts
+- [ ] Deploy to production
 
 ---
 
@@ -653,16 +659,10 @@ Work items tracked as individual branches. Each branch = one focused change. Mer
 
 ```
 master          — stable, deployable builds only
-dev             — integration branch for in-progress work
+dev             — integration branch for in-progress v3 work
 feature/<name>  — individual feature or fix branches
 backup/<date>   — pre-update snapshots (read-only after creation)
 ```
-
-**Branch naming examples:**
-- `feature/remove-hardcoded-password`
-- `feature/add-logging-module`
-- `feature/replace-system-random`
-- `backup/before-update-2026-01-15`
 
 ---
 
@@ -670,15 +670,14 @@ backup/<date>   — pre-update snapshots (read-only after creation)
 
 1. Never commit directly to `master`.
 2. Create a `feature/` branch for every change, no matter how small.
-3. Update this README if your change affects architecture, security, or configuration.
+3. Update `docs/DESIGN_SPEC.md` if your change affects architecture or design decisions.
 4. Update `Globals.vb` version number for every build that gets deployed.
 5. Follow the backup procedure before deploying.
-6. Document any new SQL queries in the Database Tables section.
-7. All new methods require:
+6. All new methods require:
    - XML doc comment header (`''' <summary>`)
    - Input validation at method entry
    - `Try/Catch` error handling (no `On Error GoTo`)
-   - At least one call to `objHost.LogMessage()` on error paths
+   - At least one call to `Logger.Log()` on error paths
 
 ---
 
