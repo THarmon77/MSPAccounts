@@ -1,9 +1,7 @@
-﻿Public Class PluginMain
+Public Class PluginMain
     Implements LabTech.Interfaces.IPlugin
     Dim mMD5 As String
     Dim mFilename As String
-
-
 
     Public ReadOnly Property Name() As String Implements LabTech.Interfaces.IPlugin.Name
         Get
@@ -13,7 +11,7 @@
 
     Public ReadOnly Property About() As String Implements LabTech.Interfaces.IPlugin.About
         Get
-            Return "LabTech " & PluginName & " Plugin" & vbCrLf & "       v" & Version.ToString & vbCrLf & "Copyright 2015 " & Author
+            Return PluginName & vbCrLf & "       v" & Version.ToString & vbCrLf & "Copyright 2026 " & Author
         End Get
     End Property
 
@@ -22,7 +20,6 @@
             Return mAuthor
         End Get
     End Property
-
 
     Public ReadOnly Property Version() As Integer Implements LabTech.Interfaces.IPlugin.Version
         Get

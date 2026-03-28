@@ -1,87 +1,111 @@
-﻿Public Class clsPermissions
+Public Class clsPermissions
     Implements LabTech.Interfaces.IPermissions
-    'This class is loaded by the DBAgent. There will only ever be one instance of this class.
+    ' Called by the DB agent on every CW Automate Control Center load.
+    ' Creates and migrates plugin tables, seeds default settings.
 
     Private objHost As LabTech.Interfaces.IControlCenter
 
-    
     Private Sub DoInitialSetup()
         Try
-            'Create the Tables if they do not exist
-            'Check if the System is setup by checking for the existance of the table
-            Dim sql As String
-            Dim CheckString As String
-            CheckString = objHost.GetSQL("SHOW TABLES LIKE 'plugin_itsc_msp_accounts_settings'")
-            If CheckString IsNot Nothing AndAlso CheckString = "-9999" Then
-                sql = "CREATE TABLE `plugin_itsc_msp_accounts_settings` (`MSP_Name` varchar(50) NOT NULL, `User_Prefix` varchar(50) NOT NULL, `Exclude_Locations` varchar(2000) NOT NULL, `Service_Account` varchar(50) DEFAULT NULL, `Min_Password_Length` tinyint(2) NOT NULL, `Password_Change_Days` tinyint(3) NOT NULL, `Local_Service_Account` BINARY(1) DEFAULT 0, `Local_Service_Account_Exclude` BINARY(1) DEFAULT 1, `Min_Password_Upper` tinyint(2) NOT NULL, `Min_Password_Lower` tinyint(2) NOT NULL, `Min_Password_Number` tinyint(2) NOT NULL, `Min_Password_Special` tinyint(2) NOT NULL, PRIMARY KEY (`MSP_Name`)) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-                objHost.SetSQL(sql)
-                sql = "INSERT INTO plugin_itsc_msp_accounts_settings (`MSP_Name`, `User_Prefix`, `Exclude_Locations`, `Service_Account`, `Min_Password_Length`, `Password_Change_Days`, `Min_Password_Upper`, `Min_Password_Lower`, `Min_Password_Number`, `Min_Password_Special`) VALUES ('Managed_Service_Provider', 'MSP_', '0,1', 'None', 14, 59, 2, 2, 2, 2)"
-                objHost.SetSQL(sql)
-            End If
-            CheckString = objHost.GetSQL("SHOW TABLES LIKE 'plugin_itsc_msp_accounts_users'")
-            If CheckString IsNot Nothing AndAlso CheckString = "-9999" Then
-                sql = "CREATE TABLE plugin_itsc_msp_accounts_users (`Username` varchar(50) NOT NULL, `Password` blob NOT NULL, `AutoChangePassword` tinyint(1) NOT NULL, `AutoChangeDate` date NOT NULL, PRIMARY KEY (`Username`)) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-                objHost.SetSQL(sql)
-            End If
-            CheckString = objHost.GetSQL("SHOW TABLES LIKE 'plugin_itsc_msp_accounts_userstatus'")
-            If CheckString IsNot Nothing AndAlso CheckString = "-9999" Then
-                sql = "CREATE TABLE plugin_itsc_msp_accounts_userstatus (`Username` varchar(50) NOT NULL, `PluginUserEmail` varchar(50) DEFAULT NULL, `TimeStamp` DATETIME DEFAULT NULL, `ClientDCids` varchar(5000) DEFAULT NULL, PRIMARY KEY (`Username`)) ENGINE=InnoDB DEFAULT CHARSET=utf8"
-                objHost.SetSQL(sql)
-                sql = "INSERT INTO plugin_itsc_msp_accounts_userstatus (`Username`) VALUES ('debug')"
-                objHost.SetSQL(sql)
-            End If
-            ' repair previous to 2.160531
-            CheckString = objHost.GetSQL("SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'plugin_itsc_msp_accounts_settings' AND column_name = 'Exclude_Locations';")
-            If CheckString < 2000 Then
-                sql = "ALTER TABLE plugin_itsc_msp_accounts_settings MODIFY Exclude_Locations VARCHAR(2000)"
-                objHost.SetSQL(sql)
-            End If
-            ' modify previous to 2.171129
-            CheckString = objHost.GetSQL("SHOW COLUMNS FROM plugin_itsc_msp_accounts_settings LIKE 'Min_Password_Upper';")
-            If CheckString IsNot Nothing AndAlso CheckString = "-9999" Then
-                sql = "ALTER TABLE plugin_itsc_msp_accounts_settings ADD COLUMN `Min_Password_Upper` tinyint(2) NOT NULL, ADD COLUMN `Min_Password_Lower` tinyint(2) NOT NULL, ADD COLUMN `Min_Password_Number` tinyint(2) NOT NULL, ADD COLUMN `Min_Password_Special` tinyint(2) NOT NULL;"
-                objHost.SetSQL(sql)
-                sql = "UPDATE plugin_itsc_msp_accounts_settings SET `Min_Password_Upper` = 2, `Min_Password_Lower` = 2, `Min_Password_Number` = 2, `Min_Password_Special` = 2;"
-                objHost.SetSQL(sql)
-            End If
-            CheckString = objHost.GetSQL("SHOW COLUMNS FROM plugin_itsc_msp_accounts_userstatus LIKE 'TimeStamp';")
-            If CheckString IsNot Nothing AndAlso CheckString = "-9999" Then
-                sql = "ALTER TABLE plugin_itsc_msp_accounts_userstatus ADD COLUMN `TimeStamp` DATETIME DEFAULT NULL AFTER `PluginUserEmail`;"
-                objHost.SetSQL(sql)
-            End If
+            CreateSettingsTable()
+            CreateDeploymentsTable()
         Catch ex As Exception
-            objHost.LogMessage("DoInitialSetup Error:" & ex.Message)
+            objHost.LogMessage("clsPermissions.DoInitialSetup Error: " & ex.Message)
         End Try
     End Sub
 
+    Private Sub CreateSettingsTable()
+        Dim checkResult As String = objHost.GetSQL("SHOW TABLES LIKE '" & TblSettings & "'")
+        If checkResult IsNot Nothing AndAlso checkResult = "-9999" Then
+            Dim sql As String =
+                "CREATE TABLE `" & TblSettings & "` (" &
+                "`SettingKey` VARCHAR(50) NOT NULL," &
+                "`SettingValue` VARCHAR(500) DEFAULT NULL," &
+                "`UpdatedAt` DATETIME DEFAULT NULL," &
+                "PRIMARY KEY (`SettingKey`)" &
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8"
+            objHost.SetSQL(sql)
+            InsertDefaultSettings()
+        End If
+    End Sub
 
+    Private Sub InsertDefaultSettings()
+        Dim defaults As String(,) = {
+            {"account_name", "TritonTech"},
+            {"account_full_name", "Triton Technologies Support"},
+            {"account_comment", "Managed support account"},
+            {"password_length", "20"},
+            {"password_upper", "2"},
+            {"password_lower", "2"},
+            {"password_digit", "2"},
+            {"password_special", "2"},
+            {"rotation_days", "90"},
+            {"hide_from_login", "1"},
+            {"target_os_filter", "NOT LIKE '%Server%'"},
+            {"target_last_contact_hours", "1"},
+            {"migration_enabled", "1"},
+            {"legacy_account_names", "TT_Service,MSP_Admin"},
+            {"v2_migrated", "0"}
+        }
+        For i As Integer = 0 To defaults.GetUpperBound(0)
+            Dim key As String = defaults(i, 0).Replace("'", "''")
+            Dim val As String = defaults(i, 1).Replace("'", "''")
+            objHost.SetSQL(
+                "INSERT INTO `" & TblSettings & "` (SettingKey, SettingValue, UpdatedAt) " &
+                "VALUES ('" & key & "', '" & val & "', NOW())")
+        Next
+    End Sub
+
+    Private Sub CreateDeploymentsTable()
+        Dim checkResult As String = objHost.GetSQL("SHOW TABLES LIKE '" & TblDeployments & "'")
+        If checkResult IsNot Nothing AndAlso checkResult = "-9999" Then
+            Dim sql As String =
+                "CREATE TABLE `" & TblDeployments & "` (" &
+                "`LocationID` INT NOT NULL," &
+                "`LocationName` VARCHAR(100) DEFAULT NULL," &
+                "`PasswordID` INT DEFAULT NULL," &
+                "`Status` TINYINT NOT NULL DEFAULT 0 COMMENT '0=Not Deployed,1=Deployed,2=Error,3=Migrating'," &
+                "`LastRotated` DATETIME DEFAULT NULL," &
+                "`RotationDue` DATETIME DEFAULT NULL," &
+                "`MachineCount` INT NOT NULL DEFAULT 0," &
+                "`DeployedCount` INT NOT NULL DEFAULT 0," &
+                "`ErrorCount` INT NOT NULL DEFAULT 0," &
+                "`LastError` VARCHAR(500) DEFAULT NULL," &
+                "`CreatedAt` DATETIME DEFAULT NULL," &
+                "`UpdatedAt` DATETIME DEFAULT NULL," &
+                "PRIMARY KEY (`LocationID`)" &
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8"
+            objHost.SetSQL(sql)
+            PopulateDeploymentsFromLocations()
+        End If
+    End Sub
+
+    Private Sub PopulateDeploymentsFromLocations()
+        ' Seed one row per active non-system location so the UI and timers have a complete list.
+        Dim sql As String =
+            "INSERT INTO `" & TblDeployments & "` (LocationID, LocationName, Status, CreatedAt) " &
+            "SELECT l.LocationID, l.Name, 0, NOW() " &
+            "FROM locations l " &
+            "WHERE l.LocationID > 1 " &
+            "AND NOT EXISTS (SELECT 1 FROM `" & TblDeployments & "` d WHERE d.LocationID = l.LocationID)"
+        objHost.SetSQL(sql)
+    End Sub
 
     Public Function GetPermissionSet(ByVal UserID As Integer, ByVal IsSuperAdmin As Boolean, ByVal UserClasses As String) As System.Collections.Hashtable Implements LabTech.Interfaces.IPermissions.GetPermissionSet
         Dim ht As New Hashtable
         Try
-            'This will be called for every user on the system. The USer Classes is a Comma seperated string of userclasses the user is a member of
-            'You can use the UserID to determin what access to grant to the user.
-            'Super admins typically have unlimited access to the system
-
-            'Add all Tables you have added to the database to this hash table so the users can have access.
-
-            ht.Add("plugin_itsc_msp_accounts_settings", "SELECT,INSERT,UPDATE,DELETE")
-            ht.Add("plugin_itsc_msp_accounts_users", "SELECT,INSERT,UPDATE,DELETE")
-            ht.Add("plugin_itsc_msp_accounts_userstatus", "SELECT,INSERT,UPDATE,DELETE,ALTER")
-
+            ht.Add(TblSettings, "SELECT,INSERT,UPDATE,DELETE")
+            ht.Add(TblDeployments, "SELECT,INSERT,UPDATE,DELETE")
         Catch ex As Exception
-            objHost.LogMessage("GetPermissionSet Error:" & ex.Message)
+            objHost.LogMessage("clsPermissions.GetPermissionSet Error: " & ex.Message)
         End Try
         Return ht
     End Function
-
-
 
     Public Sub Initialize(ByVal Host As LabTech.Interfaces.IControlCenter) Implements LabTech.Interfaces.IPermissions.Initialize
         objHost = Host
         DoInitialSetup()
     End Sub
-
 
     Public Sub Decommision() Implements LabTech.Interfaces.IPermissions.Decommision
         objHost = Nothing

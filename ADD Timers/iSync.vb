@@ -1,7 +1,6 @@
-﻿Public Class clsSync
+Public Class clsSync
     Implements LabTech.Interfaces.ISync
     Private m_Host As LabTech.Interfaces.IControlCenter
-    Dim g_Name As String
 
     Public Sub Initialize(ByVal Host As LabTech.Interfaces.IControlCenter) Implements LabTech.Interfaces.ISync.Initialize
         m_Host = Host
@@ -13,27 +12,63 @@
 
     Public ReadOnly Property Name As String Implements LabTech.Interfaces.ISync.Name
         Get
-            Return g_Name & "_ISync"
+            Return PluginName & "_ISync_v" & mVersion
         End Get
     End Property
 
+    ''' <summary>
+    ''' Called once per day at midnight by CW Automate.
+    ''' Checks plugin_triton_msp_deployments for locations where RotationDue <= NOW()
+    ''' and triggers password rotation on all machines in each due location.
+    ''' </summary>
     Public Sub Syncronize() Implements LabTech.Interfaces.ISync.Syncronize
-        '// Perform Operations and Sync the Results with the Database using the Host object.
-        Dim changeInterval As Integer = m_Host.GetSQL("SELECT Password_Change_Days FROM `plugin_itsc_msp_accounts_settings`")
-        Dim strServiceName As String = m_Host.GetSQL("SELECT Service_Account FROM `plugin_itsc_msp_accounts_settings`")
-        Dim ds As DataSet = m_Host.GetDataSet("SELECT Username FROM plugin_itsc_msp_accounts_users WHERE AutoChangePassword IS TRUE AND CURDATE() > DATE_ADD(STR_TO_DATE(AutoChangeDate, '%Y-%m-%d'), INTERVAL " & changeInterval & " DAY)")
-        For Each DataRow As DataRow In ds.Tables(0).Rows
-            Dim User_Name As String = DataRow("Username").ToString
-            m_Host.SetSQL("UPDATE plugin_itsc_msp_accounts_users SET `AutoChangeDate` = CURDATE() WHERE `Username` = '" & User_Name & "'")
-            Dim autoPassword As String = "Random"
-            PasswordManagement.LoopedChangePassword(m_Host, User_Name, autoPassword)
-            If User_Name = strServiceName Then
-                If m_Host.GetSQL("Select Local_Service_Account from plugin_itsc_msp_accounts_settings") Then
-                    ServiceManagement.LocalServiceLoader(m_Host, "Change")
-                End If
-            End If
-        Next
-    End Sub
+        Try
+            Logger.Info(m_Host, "iSync: Daily rotation check starting")
 
+            Dim ds As DataSet = m_Host.GetDataSet(
+                "SELECT d.LocationID, d.LocationName, d.PasswordID " &
+                "FROM `" & TblDeployments & "` d " &
+                "WHERE d.Status = 1 " &
+                "AND d.PasswordID IS NOT NULL " &
+                "AND d.RotationDue IS NOT NULL " &
+                "AND d.RotationDue <= NOW()")
+
+            If ds Is Nothing OrElse ds.Tables.Count = 0 OrElse ds.Tables(0).Rows.Count = 0 Then
+                Logger.Info(m_Host, "iSync: No locations due for rotation")
+                Return
+            End If
+
+            For Each row As DataRow In ds.Tables(0).Rows
+                Dim locationID As Integer = CInt(row("LocationID"))
+                Dim locationName As String = row("LocationName").ToString()
+                Dim passwordID As Integer = CInt(row("PasswordID"))
+                Try
+                    Dim newPassword As String = PasswordManager.GeneratePassword(m_Host)
+                    PasswordManager.UpdateCWPassword(m_Host, passwordID, newPassword)
+                    AccountDeployer.RotatePasswordAllMachines(m_Host, locationID, newPassword)
+                    m_Host.SetSQL(
+                        "UPDATE `" & TblDeployments & "` " &
+                        "SET LastRotated = NOW(), " &
+                        "RotationDue = DATE_ADD(NOW(), INTERVAL " & DefaultRotationDays & " DAY), " &
+                        "UpdatedAt = NOW() " &
+                        "WHERE LocationID = " & locationID)
+                    Logger.Info(m_Host, "iSync: Rotation complete for " & locationName & " (LocationID=" & locationID & ")")
+                Catch ex As Exception
+                    Dim msg As String = ex.Message.Substring(0, Math.Min(490, ex.Message.Length))
+                    Logger.Err(m_Host, "iSync: Rotation failed for " & locationName & " (LocationID=" & locationID & "): " & ex.Message)
+                    m_Host.SetSQL(
+                        "UPDATE `" & TblDeployments & "` " &
+                        "SET ErrorCount = ErrorCount + 1, " &
+                        "LastError = '" & msg.Replace("'", "''") & "', " &
+                        "UpdatedAt = NOW() " &
+                        "WHERE LocationID = " & locationID)
+                End Try
+            Next
+
+            Logger.Info(m_Host, "iSync: Daily rotation check complete")
+        Catch ex As Exception
+            Logger.Err(m_Host, "iSync: Syncronize fatal error: " & ex.Message)
+        End Try
+    End Sub
 
 End Class
