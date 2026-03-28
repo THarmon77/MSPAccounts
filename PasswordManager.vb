@@ -110,7 +110,8 @@ Public Module PasswordManager
 
     ''' <summary>
     ''' Reads the plaintext password back from the CW passwords table via f_CWAESDecrypt.
-    ''' NOTE: Verify the exact function name against your CW Automate MySQL instance.
+    ''' f_CWAESDecrypt confirmed present on this server (encryptLevel TBD — verify with
+    ''' SELECT CAST(f_CWAESDecrypt(0, Password) AS CHAR) on a known password row).
     ''' Returns Nothing if unavailable.
     ''' </summary>
     Public Function ReadCWPassword(host As LabTech.Interfaces.IControlCenter, passwordID As Integer) As String
@@ -128,6 +129,7 @@ Public Module PasswordManager
     ''' Creates a new row in the CW native passwords table for a location.
     ''' Returns the new PasswordID, or 0 on failure.
     ''' Call this when first deploying to a location that has no password entry yet.
+    ''' Column name confirmed from DESCRIBE passwords: UserName (not Username).
     ''' </summary>
     Public Function CreateCWPassword(host As LabTech.Interfaces.IControlCenter, locationID As Integer,
                                      initialPassword As String) As Integer
@@ -137,10 +139,11 @@ Public Module PasswordManager
         Dim safeName As String = locationName.Replace("'", "''")
 
         host.SetSQL(
-            "INSERT INTO passwords (Title, Username, Password, Last_User, Last_Date, ExpireDate, LocationID) " &
-            "VALUES ('" & safeName & " - TritonTech', '" & AccountName & "', " &
+            "INSERT INTO passwords (Title, UserName, Password, Last_User, Last_Date, ExpireDate, LocationID, ClientID) " &
+            "SELECT '" & safeName & " - TritonTech', '" & AccountName & "', " &
             "f_CWAESEncrypt(0, '" & safePass & "'), " &
-            "'TritonAM_Deploy', NOW(), DATE_ADD(NOW(), INTERVAL " & DefaultRotationDays & " DAY), " & locationID & ")")
+            "'TritonAM_Deploy', NOW(), DATE_ADD(NOW(), INTERVAL " & DefaultRotationDays & " DAY), " &
+            locationID & ", ClientID FROM locations WHERE LocationID = " & locationID)
 
         Dim newID As String = host.GetSQL("SELECT LAST_INSERT_ID()")
         If newID Is Nothing OrElse newID = "-9999" Then Return 0
