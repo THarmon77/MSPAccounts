@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -9,8 +9,8 @@
     </SchemaVersion>
     <ProjectGuid>{F725736C-7A75-40EB-979B-00F9EFC82BAF}</ProjectGuid>
     <OutputType>Library</OutputType>
-    <RootNamespace>ITSC_MSP_Accounts</RootNamespace>
-    <AssemblyName>MSP Accounts</AssemblyName>
+    <RootNamespace>TritonAccountManager</RootNamespace>
+    <AssemblyName>TritonAccountManager</AssemblyName>
     <FileAlignment>512</FileAlignment>
     <MyType>Windows</MyType>
     <TargetFrameworkVersion>v2.0</TargetFrameworkVersion>
@@ -29,7 +29,7 @@
     <DefineDebug>true</DefineDebug>
     <DefineTrace>true</DefineTrace>
     <OutputPath>bin\Debug\</OutputPath>
-    <DocumentationFile>MSP Accounts.xml</DocumentationFile>
+    <DocumentationFile>TritonAccountManager.xml</DocumentationFile>
     <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022</NoWarn>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -38,7 +38,7 @@
     <DefineTrace>true</DefineTrace>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
-    <DocumentationFile>MSP Accounts.xml</DocumentationFile>
+    <DocumentationFile>TritonAccountManager.xml</DocumentationFile>
     <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022</NoWarn>
   </PropertyGroup>
   <PropertyGroup>
@@ -75,21 +75,21 @@
   <ItemGroup>
     <Compile Include="ADD Menus\clsMenus.vb" />
     <Compile Include="ADD Tables\clsPermissions.vb" />
-    <Compile Include="Dictionary.vb" />
-    <Compile Include="ServiceManagement.vb" />
-    <Compile Include="Settings.vb" />
-    <Compile Include="UserManagement.vb" />
-    <Compile Include="Reporting.vb" />
-    <Compile Include="ADD Timers\iSync2.vb" />
-    <Compile Include="PasswordManagement.vb" />
     <Compile Include="ADD Timers\iSync.vb" />
-    <Compile Include="MSP_Accounts.Designer.vb">
-      <DependentUpon>MSP_Accounts.vb</DependentUpon>
-    </Compile>
-    <Compile Include="MSP_Accounts.vb">
+    <Compile Include="ADD Timers\iSync2.vb" />
+    <Compile Include="ADD Tabs\TabClass.vb" />
+    <Compile Include="PLUGIN DEFINITION\PluginMain.vb" />
+    <Compile Include="Config.vb" />
+    <Compile Include="Dictionary.vb" />
+    <Compile Include="Globals.vb" />
+    <Compile Include="Logger.vb" />
+    <Compile Include="MainForm.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Globals.vb" />
+    <Compile Include="AccountDeployer.vb" />
+    <Compile Include="MigrationManager.vb" />
+    <Compile Include="PasswordManager.vb" />
+    <Compile Include="Settings.vb" />
     <Compile Include="My Project\AssemblyInfo.vb" />
     <Compile Include="My Project\Application.Designer.vb">
       <AutoGen>True</AutoGen>
@@ -105,14 +105,8 @@
       <DependentUpon>Settings.settings</DependentUpon>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
-    <Compile Include="PLUGIN DEFINITION\PluginMain.vb" />
-    <Compile Include="ADD Tabs\TabClass.vb" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="MSP_Accounts.resx">
-      <DependentUpon>MSP_Accounts.vb</DependentUpon>
-      <SubType>Designer</SubType>
-    </EmbeddedResource>
     <EmbeddedResource Include="My Project\Resources.resx">
       <Generator>VbMyResourcesResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.vb</LastGenOutput>
@@ -141,11 +135,4 @@
     <Content Include="Interfaces.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
 </Project>
